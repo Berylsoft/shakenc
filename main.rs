@@ -1,8 +1,13 @@
-fn once<const N: usize>(key: &[u8], ibuf: &[u8; N], obuf: &mut [u8; N]) {
-    use tiny_keccak::{Shake, Hasher, Xof};
-    let mut hasher = Shake::v256();
-    hasher.update(key);
-    hasher.squeeze(obuf);
+use tiny_keccak::{Shake, Hasher, Xof};
+
+fn init(key: &[u8]) -> Shake {
+    let mut ctx = Shake::v256();
+    ctx.update(key);
+    ctx
+}
+
+fn once<const N: usize>(ctx: &mut Shake, ibuf: &[u8; N], obuf: &mut [u8; N]) {
+    ctx.squeeze(obuf);
     for i in 0..ibuf.len() {
         obuf[i] = obuf[i] ^ ibuf[i];
     }
@@ -26,6 +31,7 @@ fn main() {
     use std::{fs::OpenOptions, io::{Read, Write}, path::PathBuf};
     let Args { input, output, key } = argh::from_env();
 
+    let mut ctx = init(key.as_bytes());
     let mut input = OpenOptions::new().read(true).open(input).unwrap();
     let mut output = OpenOptions::new().read(true).open(output).unwrap();
 
@@ -34,6 +40,6 @@ fn main() {
     let mut obuf = [0; BUF_LEN];
 
     input.read_exact(&mut ibuf).unwrap();
-    once(key.as_bytes(), &ibuf, &mut obuf);
+    once(&mut ctx, &ibuf, &mut obuf);
     output.write_all(&obuf).unwrap();
 }
