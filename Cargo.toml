@@ -1,0 +1,15 @@
+[package]
+name = "shakenc"
+version = "0.1.0"
+edition = "2021"
+authors = ["stackinspector"]
+license = "MPL-2.0"
+repository = "https://github.com/Berylsoft/shakenc"
+
+[[bin]]
+name = "shakenc"
+path = "main.rs"
+
+[dependencies]
+tiny-keccak = { version = "2", features = ["shake"] }
+argh = "0.1"
