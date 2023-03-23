@@ -37,12 +37,22 @@ fn main() {
 
     let mut ctx = init(key.as_bytes());
     let mut input = OpenOptions::new().read(true).open(input).unwrap();
-    let mut output = OpenOptions::new().read(true).open(output).unwrap();
+    let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
     let buf_len = buf_len.and_then(|n| Some(n * 1024)).unwrap_or(16384);
     let mut ibuf = vec![0u8; buf_len];
     let mut obuf = vec![0u8; buf_len];
 
-    input.read_exact(&mut ibuf).unwrap();
-    once(&mut ctx, &ibuf, &mut obuf);
-    output.write_all(&obuf).unwrap();
+    loop {
+        let read_len = input.read(&mut ibuf).unwrap();
+        if read_len == 0 {
+            // TODO check if EOF
+            break;
+        } else if read_len == buf_len {
+            once(&mut ctx, &ibuf, &mut obuf);
+            output.write_all(&obuf).unwrap();
+        } else {
+            once(&mut ctx, &ibuf[0..read_len], &mut obuf[0..read_len]);
+            output.write_all(&obuf[0..read_len]).unwrap();
+        }
+    }
 }
