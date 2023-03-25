@@ -11,5 +11,6 @@ name = "shakenc"
 path = "main.rs"
 
 [dependencies]
-tiny-keccak = { version = "2", features = ["shake"] }
+tiny-keccak = { version = "2", features = ["cshake"] }
 argh = "0.1"
+rpassword = "7"
