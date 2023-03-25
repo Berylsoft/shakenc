@@ -3,45 +3,71 @@ use tiny_keccak::{CShake, Hasher as _, Xof as _};
 const CIPHER_CUSTOM: &str = "__shakenc__file-stream-cipher";
 const HASH_CUSTOM: &str = "__shakenc__file-hash";
 
-struct Context {
+struct CipherContext {
     cipher: CShake,
-    ihash: Option<CShake>,
-    ohash: Option<CShake>,
 }
 
-fn init_hash() -> CShake {
-    CShake::v256(&[], HASH_CUSTOM.as_bytes())
-}
-
-fn finish_hash<const N: usize>(hasher: CShake) -> Option<[u8; N]> {
-    let mut hash = [0; N];
-    hasher.finalize(&mut hash);
-    Some(hash)
-}
-
-impl Context {
-    fn init(key: &[u8], ihash: bool, ohash: bool) -> Self {
+impl CipherContext {
+    fn init(key: &[u8]) -> Self {
         let mut cipher = CShake::v256(&[], CIPHER_CUSTOM.as_bytes());
         cipher.update(key);
-        let ihash = ihash.then(init_hash);
-        let ohash = ohash.then(init_hash);
-        Self { cipher, ihash, ohash }
+        Self { cipher }
     }
 
     fn next(&mut self, ibuf: &[u8], obuf: &mut [u8]) {
         assert_eq!(ibuf.len(), obuf.len());
-        self.ihash.as_mut().and_then(|hasher| Some(hasher.update(ibuf)));
-        self.ohash.as_mut().and_then(|hasher| Some(hasher.update(obuf)));
         self.cipher.squeeze(obuf);
         for i in 0..ibuf.len() {
             obuf[i] ^= ibuf[i];
         }
     }
+}
+
+struct HashContext {
+    hash: CShake
+}
+
+impl HashContext {
+    fn init() -> Self {
+        let hash = CShake::v256(&[], HASH_CUSTOM.as_bytes());
+        Self { hash }
+    }
+
+    fn next(&mut self, buf: &[u8]) {
+        self.hash.update(buf)
+    }
+
+    fn finish<const N: usize>(self) -> [u8; N] {
+        let mut hash = [0; N];
+        self.hash.finalize(&mut hash);
+        hash
+    }
+}
+
+struct Context {
+    cipher: CipherContext,
+    ihash: Option<HashContext>,
+    ohash: Option<HashContext>,
+}
+
+impl Context {
+    fn init(key: &[u8], ihash: bool, ohash: bool) -> Self {
+        let cipher = CipherContext::init(key);
+        let ihash = ihash.then(|| HashContext::init());
+        let ohash = ohash.then(|| HashContext::init());
+        Self { cipher, ihash, ohash }
+    }
+
+    fn next(&mut self, ibuf: &[u8], obuf: &mut [u8]) {
+        self.cipher.next(ibuf, obuf);
+        if let Some(ctx) = self.ihash.as_mut() { ctx.next(ibuf) }
+        if let Some(ctx) = self.ohash.as_mut() { ctx.next(obuf) }
+    }
 
     fn finish<const N: usize>(self) -> HashResult<N> {
         HashResult {
-            ihash: self.ihash.and_then(finish_hash::<N>),
-            ohash: self.ohash.and_then(finish_hash::<N>),
+            ihash: self.ihash.and_then(|ctx| Some(ctx.finish::<N>())),
+            ohash: self.ohash.and_then(|ctx| Some(ctx.finish::<N>())),
         }
     }
 }
