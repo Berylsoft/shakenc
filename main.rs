@@ -27,7 +27,7 @@ fn main() {
         /// key
         #[argh(option, short = 'k')]
         key: String,
-        /// buffer size (KB, default 16KB, will take twice this size of runtime memory)
+        /// buffer size (MB, default 16MB, will take twice this size of runtime memory)
         #[argh(option)]
         buf: Option<usize>,
     }
@@ -38,7 +38,7 @@ fn main() {
     let mut ctx = init(key.as_bytes());
     let mut input = OpenOptions::new().read(true).open(input).unwrap();
     let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
-    let buf_len = buf_len.and_then(|n| Some(n * 1024)).unwrap_or(16384);
+    let buf_len = buf_len.unwrap_or(16) * 1048576;
     let mut ibuf = vec![0u8; buf_len];
     let mut obuf = vec![0u8; buf_len];
 
