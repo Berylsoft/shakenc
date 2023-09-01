@@ -11,7 +11,7 @@ name = "shakenc"
 path = "main.rs"
 
 [dependencies]
-tiny-keccak = { version = "2", features = ["cshake"] }
+cshake = { git = "https://github.com/Berylsoft/keccak-state", features = ["alloc"] }
 argh = "0.1"
 rpassword = "7"
 hex = "0.4"

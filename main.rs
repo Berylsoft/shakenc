@@ -1,46 +1,44 @@
-use tiny_keccak::{CShake, Hasher as _, Xof as _};
+use std::num::NonZeroUsize;
 
-const CIPHER_CUSTOM: &str = "__shakenc__file-stream-cipher";
-const HASH_CUSTOM: &str = "__shakenc__file-hash";
+use cshake::{CShake, CShakeCustom, cshake_customs, Absorb, Squeeze, SqueezeXor};
+
+cshake_customs!{
+    CIPHER_CUSTOM -> "__shakenc__file-stream-cipher"
+    HASH_CUSTOM -> "__shakenc__file-hash"
+}
 
 struct CipherContext {
-    cipher: CShake,
+    cipher: CShake<CIPHER_CUSTOM>,
 }
 
 impl CipherContext {
     fn init(key: &[u8]) -> Self {
-        let mut cipher = CShake::v256(&[], CIPHER_CUSTOM.as_bytes());
-        cipher.update(key);
+        let mut cipher = CIPHER_CUSTOM.create();
+        cipher.absorb(key);
         Self { cipher }
     }
 
-    fn next(&mut self, ibuf: &[u8], obuf: &mut [u8]) {
-        assert_eq!(ibuf.len(), obuf.len());
-        self.cipher.squeeze(obuf);
-        for i in 0..ibuf.len() {
-            obuf[i] ^= ibuf[i];
-        }
+    fn next(&mut self, buf: &mut [u8]) {
+        self.cipher.squeeze_xor(buf);
     }
 }
 
 struct HashContext {
-    hash: CShake
+    hash: CShake<HASH_CUSTOM>,
 }
 
 impl HashContext {
     fn init() -> Self {
-        let hash = CShake::v256(&[], HASH_CUSTOM.as_bytes());
+        let hash = HASH_CUSTOM.create();
         Self { hash }
     }
 
     fn next(&mut self, buf: &[u8]) {
-        self.hash.update(buf)
+        self.hash.absorb(buf)
     }
 
-    fn finish<const N: usize>(self) -> [u8; N] {
-        let mut hash = [0; N];
-        self.hash.finalize(&mut hash);
-        hash
+    fn finish<const N: usize>(mut self) -> [u8; N] {
+        self.hash.squeeze_to_array()
     }
 }
 
@@ -58,10 +56,10 @@ impl Context {
         Self { cipher, ihash, ohash }
     }
 
-    fn next(&mut self, ibuf: &[u8], obuf: &mut [u8]) {
-        self.cipher.next(ibuf, obuf);
-        if let Some(ctx) = self.ihash.as_mut() { ctx.next(ibuf) }
-        if let Some(ctx) = self.ohash.as_mut() { ctx.next(obuf) }
+    fn next(&mut self, buf: &mut [u8]) {
+        if let Some(ctx) = self.ihash.as_mut() { ctx.next(buf) }
+        self.cipher.next(buf);
+        if let Some(ctx) = self.ohash.as_mut() { ctx.next(buf) }
     }
 
     fn finish<const N: usize>(self) -> HashResult<N> {
@@ -106,9 +104,9 @@ fn main() {
         /// key (if not provided in arguments, you will need to enter them later)
         #[argh(option, short = 'k')]
         key: Option<String>,
-        /// buffer size (MB, default 16MB, will take twice this size of runtime memory)
+        /// buffer size (MB, default 16MB, will take this size of runtime memory)
         #[argh(option)]
-        buf: Option<usize>,
+        buf: Option<NonZeroUsize>,
         /// hash input file
         #[argh(switch)]
         ih: bool,
@@ -120,27 +118,29 @@ fn main() {
     use std::{fs::OpenOptions, io::{Read, Write}, path::PathBuf};
     let Args { input, output, key, buf: buf_len, ih: ihash, oh: ohash } = argh::from_env();
 
-    let buf_len = buf_len.unwrap_or(16) * 1048576;
+    let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
     let key = key.unwrap_or_else(|| rpassword::prompt_password("key: ").unwrap());
 
     let mut ctx = Context::init(key.as_bytes(), ihash, ohash);
-    let mut ibuf = vec![0u8; buf_len];
-    let mut obuf = vec![0u8; buf_len];
-    let mut ifile = OpenOptions::new().read(true).open(input).unwrap();
-    let mut ofile = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
+    let mut buf = vec![0u8; buf_len];
+    let mut input = OpenOptions::new().read(true).open(input).unwrap();
+    let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
 
     loop {
-        let read_len = ifile.read(&mut ibuf).unwrap();
-        if read_len == 0 {
-            // TODO check if EOF
-            println!("{}", ctx.finish::<32>());
-            break;
-        } else if read_len == buf_len {
-            ctx.next(&ibuf, &mut obuf);
-            ofile.write_all(&obuf).unwrap();
-        } else {
-            ctx.next(&ibuf[0..read_len], &mut obuf[0..read_len]);
-            ofile.write_all(&obuf[0..read_len]).unwrap();
+        match input.read(&mut buf).unwrap() {
+            0 => {
+                // must be EOF beacuse buf_len != 0
+                println!("{}", ctx.finish::<32>());
+                break;
+            },
+            read_len if read_len == buf_len => {
+                ctx.next(&mut buf);
+                output.write_all(&buf).unwrap();
+            },
+            read_len => {
+                ctx.next(&mut buf[0..read_len]);
+                output.write_all(&buf[0..read_len]).unwrap();
+            },
         }
     }
 }
