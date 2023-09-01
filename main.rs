@@ -1,8 +1,19 @@
+#[inline]
+pub fn u64_usize(n: u64) -> usize {
+    n.try_into().expect("FATAL: u64 length to usize error")
+}
+
+#[inline]
+pub fn usize_u64(n: usize) -> u64 {
+    n.try_into().expect("FATAL: usize length to u64 error")
+}
+
 use cshake::{CShake, CShakeCustom, cshake_customs, Absorb, Squeeze, SqueezeXor};
 
 cshake_customs! {
     CIPHER_CUSTOM -> "__shakenc__file-stream-cipher"
     HASH_CUSTOM -> "__shakenc__file-hash"
+    RAND_CUSTOM -> "__shakenc__random-generator"
 }
 
 struct Context {
@@ -55,52 +66,137 @@ impl<const N: usize> std::fmt::Display for HashResult<N> {
     }
 }
 
+use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf};
+
+#[derive(argh::FromArgs)]
+/// shakenc
+struct Args {
+    /// key (if not provided in arguments, you will need to enter them later)
+    #[argh(option, short = 'k')]
+    key: Option<String>,
+    /// buffer size (MB, default 16MB, will take this size of runtime memory)
+    #[argh(option)]
+    buf: Option<NonZeroUsize>,
+    #[argh(subcommand)]
+    sub: Commands,
+}
+
+#[derive(argh::FromArgs)]
+#[argh(subcommand)]
+enum Commands {
+    Crypt(Crypt),
+    Rng(Rng),
+    Rnv(Rnv),
+}
+
+#[derive(argh::FromArgs)]
+#[argh(subcommand, name = "crypt")]
+/// cSHAKE256 as a stream cipher for file encrypt/decrypt
+struct Crypt {
+    /// input file path
+    #[argh(option, short = 'i')]
+    input: PathBuf,
+    /// output file path
+    #[argh(option, short = 'o')]
+    output: PathBuf,
+    /// hash input file
+    #[argh(switch)]
+    ih: bool,
+    /// hash output file
+    #[argh(switch)]
+    oh: bool,
+}
+
+#[derive(argh::FromArgs)]
+#[argh(subcommand, name = "rng")]
+/// cSHAKE256 as a reproduceable random generator
+struct Rng {
+    /// output file path
+    #[argh(option, short = 'o')]
+    output: PathBuf,
+    /// output file length (MB)
+    #[argh(option, short = 'l')]
+    len: u64,
+}
+
+#[derive(argh::FromArgs)]
+#[argh(subcommand, name = "rnv")]
+/// cSHAKE256 as a reproduceable random generator
+struct Rnv {
+    /// input file path
+    #[argh(option, short = 'i')]
+    input: PathBuf,
+}
+
 fn main() {
-    #[derive(argh::FromArgs)]
-    /// shakenc: cSHAKE256 as a stream cipher for file encrypt/decrypt
-    struct Args {
-        /// input file path
-        #[argh(option, short = 'i')]
-        input: PathBuf,
-        /// output file path
-        #[argh(option, short = 'o')]
-        output: PathBuf,
-        /// key (if not provided in arguments, you will need to enter them later)
-        #[argh(option, short = 'k')]
-        key: Option<String>,
-        /// buffer size (MB, default 16MB, will take this size of runtime memory)
-        #[argh(option)]
-        buf: Option<NonZeroUsize>,
-        /// hash input file
-        #[argh(switch)]
-        ih: bool,
-        /// hash output file
-        #[argh(switch)]
-        oh: bool,
-    }
+    let Args { key, buf: buf_len, sub } = argh::from_env();
 
-    use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf};
-    let Args { input, output, key, buf: buf_len, ih: ihash, oh: ohash } = argh::from_env();
-
-    let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
     let key = key.unwrap_or_else(|| rpassword::prompt_password("key: ").unwrap());
-
-    let mut ctx = Context::init(key.as_bytes(), ihash, ohash);
+    let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
     let mut buf = vec![0u8; buf_len];
-    let mut input = OpenOptions::new().read(true).open(input).unwrap();
-    let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
 
-    loop {
-        let read_len = input.read(&mut buf).unwrap();
-        if read_len != 0 {
-            // buf == buf[..read_len] when buf_len == read_len
-            let buf = &mut buf[..read_len];
-            ctx.next(buf);
-            output.write_all(buf).unwrap();
-        } else {
-            // must be EOF beacuse buf_len != 0
-            println!("{}", ctx.finish::<32>());
-            break;
-        }
+    match sub {
+        Commands::Crypt(Crypt { input, output, ih: ihash, oh: ohash }) => {
+            let mut ctx = Context::init(key.as_bytes(), ihash, ohash);
+            let mut input = OpenOptions::new().read(true).open(input).unwrap();
+            let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
+
+            loop {
+                let read_len = input.read(&mut buf).unwrap();
+                if read_len != 0 {
+                    // buf == buf[..read_len] when buf_len == read_len
+                    let buf = &mut buf[..read_len];
+                    ctx.next(buf);
+                    output.write_all(buf).unwrap();
+                } else {
+                    // must be EOF beacuse buf_len != 0
+                    println!("{}", ctx.finish::<32>());
+                    break;
+                }
+            }
+        },
+
+        Commands::Rng(Rng { output, len }) => {
+            let mut ctx = RAND_CUSTOM.create().chain_absorb(key.as_bytes());
+            let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
+            let mut rest = len * 1048576;
+            
+            loop {
+                if rest != 0 {
+                    let write_len = buf_len.min(u64_usize(rest));
+                    let buf = &mut buf[..write_len];
+                    ctx.squeeze(buf);
+                    output.write_all(buf).unwrap();
+                    rest -= usize_u64(write_len);
+                } else {
+                    break;
+                }
+            }
+        },
+        
+        Commands::Rnv(Rnv { input }) => {
+            let mut ctx = RAND_CUSTOM.create().chain_absorb(key.as_bytes());
+            let mut input = OpenOptions::new().read(true).open(input).unwrap();
+            let mut read = 0;
+            
+            loop {
+                let read_len = input.read(&mut buf).unwrap();
+                if read_len != 0 {
+                    // buf == buf[..read_len] when buf_len == read_len
+                    let buf = &mut buf[..read_len];
+                    ctx.squeeze_xor(buf);
+                    for (pos, b) in buf.into_iter().enumerate() {
+                        if *b != 0 {
+                            println!("error occurred at byte {}", read + usize_u64(pos));
+                        }
+                    }
+                    read += usize_u64(read_len);
+                } else {
+                    // must be EOF beacuse buf_len != 0
+                    // assert_eq!(read, input.metadata().unwrap().len());
+                    break;
+                }
+            }
+        },
     }
 }
