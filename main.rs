@@ -1,71 +1,35 @@
-use std::num::NonZeroUsize;
-
 use cshake::{CShake, CShakeCustom, cshake_customs, Absorb, Squeeze, SqueezeXor};
 
-cshake_customs!{
+cshake_customs! {
     CIPHER_CUSTOM -> "__shakenc__file-stream-cipher"
     HASH_CUSTOM -> "__shakenc__file-hash"
 }
 
-struct CipherContext {
-    cipher: CShake<CIPHER_CUSTOM>,
-}
-
-impl CipherContext {
-    fn init(key: &[u8]) -> Self {
-        let mut cipher = CIPHER_CUSTOM.create();
-        cipher.absorb(key);
-        Self { cipher }
-    }
-
-    fn next(&mut self, buf: &mut [u8]) {
-        self.cipher.squeeze_xor(buf);
-    }
-}
-
-struct HashContext {
-    hash: CShake<HASH_CUSTOM>,
-}
-
-impl HashContext {
-    fn init() -> Self {
-        let hash = HASH_CUSTOM.create();
-        Self { hash }
-    }
-
-    fn next(&mut self, buf: &[u8]) {
-        self.hash.absorb(buf)
-    }
-
-    fn finish<const N: usize>(mut self) -> [u8; N] {
-        self.hash.squeeze_to_array()
-    }
-}
-
 struct Context {
-    cipher: CipherContext,
-    ihash: Option<HashContext>,
-    ohash: Option<HashContext>,
+    cipher: CShake<CIPHER_CUSTOM>,
+    ihash: Option<CShake<HASH_CUSTOM>>,
+    ohash: Option<CShake<HASH_CUSTOM>>,
 }
 
 impl Context {
     fn init(key: &[u8], ihash: bool, ohash: bool) -> Self {
-        let cipher = CipherContext::init(key);
-        let ihash = ihash.then(|| HashContext::init());
-        let ohash = ohash.then(|| HashContext::init());
-        Self { cipher, ihash, ohash }
+        Self {
+            cipher: CIPHER_CUSTOM.create().chain_absorb(key),
+            ihash: ihash.then(|| HASH_CUSTOM.create()),
+            ohash: ohash.then(|| HASH_CUSTOM.create()),
+        }
     }
 
     fn next(&mut self, buf: &mut [u8]) {
-        if let Some(ctx) = self.ihash.as_mut() { ctx.next(buf) }
-        self.cipher.next(buf);
-        if let Some(ctx) = self.ohash.as_mut() { ctx.next(buf) }
+        self.ihash.as_mut().map(|ctx| ctx.absorb(buf));
+        self.cipher.squeeze_xor(buf);
+        self.ohash.as_mut().map(|ctx| ctx.absorb(buf));
     }
 
     fn finish<const N: usize>(self) -> HashResult<N> {
         HashResult {
-            ihash: self.ihash.and_then(|ctx| Some(ctx.finish::<N>())),
-            ohash: self.ohash.and_then(|ctx| Some(ctx.finish::<N>())),
+            ihash: self.ihash.and_then(|mut ctx| Some(ctx.squeeze_to_array())),
+            ohash: self.ohash.and_then(|mut ctx| Some(ctx.squeeze_to_array())),
         }
     }
 }
@@ -115,7 +79,7 @@ fn main() {
         oh: bool,
     }
 
-    use std::{fs::OpenOptions, io::{Read, Write}, path::PathBuf};
+    use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf};
     let Args { input, output, key, buf: buf_len, ih: ihash, oh: ohash } = argh::from_env();
 
     let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
@@ -127,20 +91,16 @@ fn main() {
     let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
 
     loop {
-        match input.read(&mut buf).unwrap() {
-            0 => {
-                // must be EOF beacuse buf_len != 0
-                println!("{}", ctx.finish::<32>());
-                break;
-            },
-            read_len if read_len == buf_len => {
-                ctx.next(&mut buf);
-                output.write_all(&buf).unwrap();
-            },
-            read_len => {
-                ctx.next(&mut buf[0..read_len]);
-                output.write_all(&buf[0..read_len]).unwrap();
-            },
+        let read_len = input.read(&mut buf).unwrap();
+        if read_len != 0 {
+            // buf == buf[..read_len] when buf_len == read_len
+            let buf = &mut buf[..read_len];
+            ctx.next(buf);
+            output.write_all(buf).unwrap();
+        } else {
+            // must be EOF beacuse buf_len != 0
+            println!("{}", ctx.finish::<32>());
+            break;
         }
     }
 }
