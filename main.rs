@@ -67,6 +67,7 @@ impl<const N: usize> std::fmt::Display for HashResult<N> {
 }
 
 use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf};
+use indicatif::ProgressBar;
 
 #[derive(argh::FromArgs)]
 /// shakenc
@@ -140,6 +141,9 @@ fn main() {
             let mut ctx = Context::init(key.as_bytes(), ihash, ohash);
             let mut input = OpenOptions::new().read(true).open(input).unwrap();
             let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
+            let len = input.metadata().unwrap().len();
+            let mut progress = 0;
+            let progress_bar = ProgressBar::new(len);
 
             loop {
                 let read_len = input.read(&mut buf).unwrap();
@@ -148,8 +152,11 @@ fn main() {
                     let buf = &mut buf[..read_len];
                     ctx.next(buf);
                     output.write_all(buf).unwrap();
+                    progress += usize_u64(read_len);
+                    progress_bar.inc(usize_u64(read_len));
                 } else {
                     // must be EOF beacuse buf_len != 0
+                    assert_eq!(progress, len);
                     println!("{}", ctx.finish::<32>());
                     break;
                 }
@@ -159,25 +166,31 @@ fn main() {
         Commands::Rng(Rng { output, len }) => {
             let mut ctx = RAND_CUSTOM.create().chain_absorb(key.as_bytes());
             let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
-            let mut rest = len * 1048576;
-            
+            let len = len * 1048576;
+            let mut progress = 0;
+            let progress_bar = ProgressBar::new(len);
+
             loop {
-                if rest != 0 {
-                    let write_len = buf_len.min(u64_usize(rest));
+                if (len - progress) != 0 {
+                    let write_len = buf_len.min(u64_usize(len - progress));
                     let buf = &mut buf[..write_len];
                     ctx.squeeze(buf);
                     output.write_all(buf).unwrap();
-                    rest -= usize_u64(write_len);
+                    progress += usize_u64(write_len);
+                    progress_bar.inc(usize_u64(write_len));
                 } else {
+                    assert_eq!(progress, len);
                     break;
                 }
             }
         },
-        
+
         Commands::Rnv(Rnv { input }) => {
             let mut ctx = RAND_CUSTOM.create().chain_absorb(key.as_bytes());
             let mut input = OpenOptions::new().read(true).open(input).unwrap();
-            let mut read = 0;
+            let len = input.metadata().unwrap().len();
+            let mut progress = 0;
+            let progress_bar = ProgressBar::new(len);
             
             loop {
                 let read_len = input.read(&mut buf).unwrap();
@@ -187,13 +200,14 @@ fn main() {
                     ctx.squeeze_xor(buf);
                     for (pos, b) in buf.into_iter().enumerate() {
                         if *b != 0 {
-                            println!("error occurred at byte {}", read + usize_u64(pos));
+                            println!("error occurred at byte {}", progress + usize_u64(pos));
                         }
                     }
-                    read += usize_u64(read_len);
+                    progress += usize_u64(read_len);
+                    progress_bar.inc(usize_u64(read_len));
                 } else {
                     // must be EOF beacuse buf_len != 0
-                    // assert_eq!(read, input.metadata().unwrap().len());
+                    assert_eq!(progress, len);
                     break;
                 }
             }
