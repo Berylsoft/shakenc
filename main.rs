@@ -8,7 +8,7 @@ pub fn usize_u64(n: usize) -> u64 {
     n.try_into().expect("FATAL: usize length to u64 error")
 }
 
-use cshake::{CShake, CShakeCustom, cshake_customs, Absorb, Squeeze, SqueezeXor};
+use cshake::{CShake, CShakeCustom, cshake_customs, Absorb, Squeeze, SqueezeXor, SqueezeSkip};
 
 cshake_customs! {
     CIPHER_CUSTOM -> "__shakenc__file-stream-cipher"
@@ -112,9 +112,9 @@ struct Crypt {
 #[argh(subcommand, name = "rng")]
 /// cSHAKE256 as a reproduceable random generator
 struct Rng {
-    /// output file path
+    /// output file path (none for test generating speed)
     #[argh(option, short = 'o')]
-    output: PathBuf,
+    output: Option<PathBuf>,
     /// output file length (MB)
     #[argh(option, short = 'l')]
     len: u64,
@@ -171,7 +171,7 @@ fn main() {
 
         Commands::Rng(Rng { output, len }) => {
             let mut ctx = RAND_CUSTOM.create().chain_absorb(key.as_bytes());
-            let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
+            let mut output = output.map(|output| OpenOptions::new().create_new(true).write(true).open(output).unwrap());
             let len = len * 1048576;
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
@@ -181,8 +181,12 @@ fn main() {
                 if (len - progress) != 0 {
                     let write_len = buf_len.min(u64_usize(len - progress));
                     let buf = &mut buf[..write_len];
-                    ctx.squeeze(buf);
-                    output.write_all(buf).unwrap();
+                    if let Some(output) = output.as_mut() {
+                        ctx.squeeze(buf);
+                        output.write_all(buf).unwrap();
+                    } else {
+                        ctx.squeeze_skip(write_len);
+                    }
                     progress += usize_u64(write_len);
                     progress_bar.inc(usize_u64(write_len));
                 } else {
