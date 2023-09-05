@@ -133,6 +133,9 @@ struct Rnv {
     /// input file path
     #[argh(option, short = 'i')]
     input: PathBuf,
+    /// count error bytes after first error occurred rather than stop immediately
+    #[argh(switch)]
+    count_err: bool,
 }
 
 enum KeyInput {
@@ -262,17 +265,22 @@ fn main() {
             }
         },
 
-        Commands::Rnv(Rnv { input }) => {
+        Commands::Rnv(Rnv { input, count_err }) => {
             let mut ctx = RAND_CUSTOM.create().chain_absorb(&key);
             let mut input = OpenOptions::new().read(true).open(input).unwrap();
             let len = input.metadata().unwrap().len();
             let mut progress = 0;
+            let mut err: u64 = 0;
             let progress_bar = ProgressBar::new(len);
             progress_bar.set_style(progress_style);
 
-            loop {
+            'main: loop {
                 if let Ok(()) = close_rx.try_recv() {
-                    eprintln!("aborted at byte {}", progress);
+                    if count_err {
+                        eprintln!("aborted at byte {} with {} byte(s) error", progress, err);
+                    } else {
+                        eprintln!("aborted at byte {}", progress);
+                    }
                     break;
                 }
                 let read_len = input.read(&mut buf).unwrap();
@@ -280,9 +288,18 @@ fn main() {
                     // buf == buf[..read_len] when buf_len == read_len
                     let buf = &mut buf[..read_len];
                     ctx.squeeze_xor(buf);
+                    // TODO: if err != 0 then not enumerate()? necessary?
                     for (pos, b) in buf.into_iter().enumerate() {
                         if *b != 0 {
-                            eprintln!("error occurred at byte {}", progress + usize_u64(pos));
+                            if count_err {
+                                if err == 0 {
+                                    eprintln!("error occurred at byte {}", progress + usize_u64(pos));
+                                }
+                                err += 1;
+                            } else {
+                                eprintln!("aborted by error occurred at byte {}", progress + usize_u64(pos));
+                                break 'main;
+                            }
                         }
                     }
                     progress += usize_u64(read_len);
@@ -290,7 +307,11 @@ fn main() {
                 } else {
                     // must be EOF beacuse buf_len != 0
                     assert_eq!(progress, len);
-                    eprintln!("finished");
+                    if count_err {
+                        eprintln!("finished with {} byte(s) error", err);
+                    } else {
+                        eprintln!("finished");
+                    }
                     break;
                 }
             }
