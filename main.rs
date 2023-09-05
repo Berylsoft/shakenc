@@ -66,7 +66,7 @@ impl<const N: usize> std::fmt::Display for HashResult<N> {
     }
 }
 
-use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf};
+use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf, sync::mpsc};
 use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(argh::FromArgs)]
@@ -183,11 +183,13 @@ impl KeyInput {
 }
 
 // TODO(upstream): template codegen & bar max width
-const PROGRESS_TEMPLATE: &str = "[{bar:60}] {percent}% {bytes}/{total_bytes} {elapsed_precise}/{duration_precise}(ETA) {bytes_per_sec}";
+const PROGRESS_TEMPLATE: &str = "{bar:60} {percent}% {bytes}/{total_bytes} {elapsed_precise}/{duration_precise} {bytes_per_sec} ETA={eta}";
 
 fn main() {
     let Args { key, rand_key, hex_key, buf: buf_len, sub } = argh::from_env();
 
+    let (close_tx, close_rx) = mpsc::sync_channel::<()>(0);
+    ctrlc::set_handler(move || close_tx.send(()).unwrap()).unwrap();
     let progress_style = ProgressStyle::with_template(PROGRESS_TEMPLATE).unwrap();
 
     let key = KeyInput::from_args(key, rand_key, hex_key).process();
@@ -206,6 +208,10 @@ fn main() {
             progress_bar.set_style(progress_style);
 
             loop {
+                if let Ok(()) = close_rx.try_recv() {
+                    eprintln!("aborted at byte {}", progress);
+                    break;
+                }
                 let read_len = input.read(&mut buf).unwrap();
                 if read_len != 0 {
                     // buf == buf[..read_len] when buf_len == read_len
@@ -217,6 +223,7 @@ fn main() {
                 } else {
                     // must be EOF beacuse buf_len != 0
                     assert_eq!(progress, len);
+                    eprintln!("finished");
                     println!("{}", ctx.finish::<32>());
                     break;
                 }
@@ -232,6 +239,10 @@ fn main() {
             progress_bar.set_style(progress_style);
 
             loop {
+                if let Ok(()) = close_rx.try_recv() {
+                    eprintln!("aborted at byte {}", progress);
+                    break;
+                }
                 if (len - progress) != 0 {
                     let write_len = buf_len.min(u64_usize(len - progress));
                     let buf = &mut buf[..write_len];
@@ -245,6 +256,7 @@ fn main() {
                     progress_bar.inc(usize_u64(write_len));
                 } else {
                     assert_eq!(progress, len);
+                    eprintln!("finished");
                     break;
                 }
             }
@@ -259,6 +271,10 @@ fn main() {
             progress_bar.set_style(progress_style);
 
             loop {
+                if let Ok(()) = close_rx.try_recv() {
+                    eprintln!("aborted at byte {}", progress);
+                    break;
+                }
                 let read_len = input.read(&mut buf).unwrap();
                 if read_len != 0 {
                     // buf == buf[..read_len] when buf_len == read_len
@@ -266,7 +282,7 @@ fn main() {
                     ctx.squeeze_xor(buf);
                     for (pos, b) in buf.into_iter().enumerate() {
                         if *b != 0 {
-                            println!("error occurred at byte {}", progress + usize_u64(pos));
+                            eprintln!("error occurred at byte {}", progress + usize_u64(pos));
                         }
                     }
                     progress += usize_u64(read_len);
@@ -274,6 +290,7 @@ fn main() {
                 } else {
                     // must be EOF beacuse buf_len != 0
                     assert_eq!(progress, len);
+                    eprintln!("finished");
                     break;
                 }
             }
