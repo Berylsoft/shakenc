@@ -110,7 +110,7 @@ struct Crypt {
 
 #[derive(argh::FromArgs)]
 #[argh(subcommand, name = "rng")]
-/// cSHAKE256 as a reproduceable random generator
+/// cSHAKE256 as a reproduceable random generator (generate files with random bits or test the speed)
 struct Rng {
     /// output file path (none for test generating speed)
     #[argh(option, short = 'o')]
@@ -122,7 +122,7 @@ struct Rng {
 
 #[derive(argh::FromArgs)]
 #[argh(subcommand, name = "rnv")]
-/// cSHAKE256 as a reproduceable random generator
+/// cSHAKE256 as a reproduceable random generator (verify generated files)
 struct Rnv {
     /// input file path
     #[argh(option, short = 'i')]
@@ -130,7 +130,7 @@ struct Rnv {
 }
 
 // TODO(upstream): template codegen & bar max width
-const PROGRESS_TEMPLATE: &str = "[{bar:60}] {percent} {bytes}/{total_bytes} {elapsed_precise}/{duration_precise}(ETA) {bytes_per_sec}";
+const PROGRESS_TEMPLATE: &str = "[{bar:60}] {percent}% {bytes}/{total_bytes} {elapsed_precise}/{duration_precise}(ETA) {bytes_per_sec}";
 
 fn main() {
     let Args { key, buf: buf_len, sub } = argh::from_env();
@@ -139,6 +139,7 @@ fn main() {
 
     let key = key.unwrap_or_else(|| rpassword::prompt_password("key: ").unwrap());
     let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
+    // TODO: add mode-specific determination? (https://users.rust-lang.org/t/99470)
     let mut buf = vec![0u8; buf_len];
 
     match sub {
