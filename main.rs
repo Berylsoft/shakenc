@@ -67,7 +67,7 @@ impl<const N: usize> std::fmt::Display for HashResult<N> {
 }
 
 use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf};
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(argh::FromArgs)]
 /// shakenc
@@ -129,8 +129,13 @@ struct Rnv {
     input: PathBuf,
 }
 
+// TODO(upstream): template codegen & bar max width
+const PROGRESS_TEMPLATE: &str = "[{bar:60}] {percent} {bytes}/{total_bytes} {elapsed_precise}/{duration_precise}(ETA) {bytes_per_sec}";
+
 fn main() {
     let Args { key, buf: buf_len, sub } = argh::from_env();
+
+    let progress_style = ProgressStyle::with_template(PROGRESS_TEMPLATE).unwrap();
 
     let key = key.unwrap_or_else(|| rpassword::prompt_password("key: ").unwrap());
     let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
@@ -144,6 +149,7 @@ fn main() {
             let len = input.metadata().unwrap().len();
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
+            progress_bar.set_style(progress_style);
 
             loop {
                 let read_len = input.read(&mut buf).unwrap();
@@ -169,6 +175,7 @@ fn main() {
             let len = len * 1048576;
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
+            progress_bar.set_style(progress_style);
 
             loop {
                 if (len - progress) != 0 {
@@ -191,7 +198,8 @@ fn main() {
             let len = input.metadata().unwrap().len();
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
-            
+            progress_bar.set_style(progress_style);
+
             loop {
                 let read_len = input.read(&mut buf).unwrap();
                 if read_len != 0 {
