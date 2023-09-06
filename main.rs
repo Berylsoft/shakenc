@@ -162,7 +162,9 @@ impl KeyInput {
     fn process(self) -> Zeroizing<Vec<u8>> {
         #[inline]
         fn prompt_key(prompt: &str) -> Zeroizing<Vec<u8>> {
-            rpassword::prompt_password(prompt).unwrap().into_bytes().into()
+            // TODO(upstream): Zeroizing::map https://github.com/RustCrypto/utils/issues/947
+            let key = secprompt::prompt_password(prompt).unwrap();
+            key.as_bytes().to_owned().into()
         }
 
         #[inline]
