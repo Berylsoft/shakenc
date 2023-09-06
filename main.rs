@@ -215,7 +215,6 @@ fn main() {
 
             loop {
                 if let Ok(()) = close_rx.try_recv() {
-                    progress_bar.abandon();
                     eprintln!("aborted at byte {}", progress);
                     break;
                 }
@@ -230,7 +229,6 @@ fn main() {
                 } else {
                     // must be EOF beacuse buf_len != 0
                     assert_eq!(progress, len);
-                    progress_bar.finish();
                     eprintln!("finished");
                     println!("{}", ctx.finish::<32>());
                     break;
@@ -248,7 +246,6 @@ fn main() {
 
             loop {
                 if let Ok(()) = close_rx.try_recv() {
-                    progress_bar.abandon();
                     eprintln!("aborted at byte {}", progress);
                     break;
                 }
@@ -265,7 +262,6 @@ fn main() {
                     progress_bar.inc(usize_u64(write_len));
                 } else {
                     assert_eq!(progress, len);
-                    progress_bar.finish();
                     eprintln!("finished");
                     break;
                 }
@@ -283,7 +279,6 @@ fn main() {
 
             'main: loop {
                 if let Ok(()) = close_rx.try_recv() {
-                    progress_bar.abandon();
                     if count_err {
                         eprintln!("aborted at byte {} with {} byte(s) error", progress, err);
                     } else {
@@ -305,7 +300,6 @@ fn main() {
                                 }
                                 err += 1;
                             } else {
-                                progress_bar.abandon();
                                 eprintln!("aborted by error occurred at byte {}", progress + usize_u64(pos));
                                 break 'main;
                             }
@@ -316,7 +310,6 @@ fn main() {
                 } else {
                     // must be EOF beacuse buf_len != 0
                     assert_eq!(progress, len);
-                    progress_bar.finish();
                     if count_err {
                         eprintln!("finished with {} byte(s) error", err);
                     } else {
