@@ -299,28 +299,31 @@ fn main() {
             let progress_bar = ProgressBar::new(len);
             progress_bar.set_style(progress_style);
 
+            macro_rules! eprintln_werr {
+                ($($arg:tt)*) => {
+                    eprint!($($arg)*);
+                    if count_err & (err != 0) {
+                        eprintln!(" with {} byte(s) ({}) error", err, HumanBytes(err));
+                    } else {
+                        eprintln!();
+                    }
+                };
+            }
+
             'main: loop {
                 macro_rules! ioop {
                     ($op:expr) => {
                         match $op {
                             Ok(val) => val,
                             Err(e) => {
-                                if count_err & (err != 0) {
-                                    eprintln!("aborted at byte {} ({}) by file error {:?} with {} byte(s) ({}) error", progress, HumanBytes(progress), e, err, HumanBytes(err));
-                                } else {
-                                    eprintln!("aborted at byte {} ({}) by file error {:?}", progress, HumanBytes(progress), e);
-                                }
+                                eprintln_werr!("aborted at byte {} ({}) by file error {:?}", progress, HumanBytes(progress), e);
                                 break;
                             },
                         }
                     };
                 }
                 if let Ok(()) = close_rx.try_recv() {
-                    if count_err & (err != 0) {
-                        eprintln!("aborted at byte {} ({}) with {} byte(s) ({}) error", progress, HumanBytes(progress), err, HumanBytes(err));
-                    } else {
-                        eprintln!("aborted at byte {} ({})", progress, HumanBytes(progress));
-                    }
+                    eprintln_werr!("aborted at byte {} ({})", progress, HumanBytes(progress));
                     break;
                 }
                 let read_len = ioop!(input.read(&mut buf));
@@ -348,11 +351,7 @@ fn main() {
                 } else {
                     // must be EOF beacuse buf_len != 0
                     assert_eq!(progress, len);
-                    if count_err & (err != 0) {
-                        eprintln!("finished with {} byte(s) ({}) error", err, HumanBytes(err));
-                    } else {
-                        eprintln!("finished");
-                    }
+                    eprintln_werr!("finished");
                     break;
                 }
             }
