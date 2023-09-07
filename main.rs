@@ -68,7 +68,7 @@ impl<const N: usize> std::fmt::Display for HashResult<N> {
 
 use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf, sync::mpsc};
 use zeroize::Zeroizing;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle, HumanBytes};
 
 #[derive(argh::FromArgs)]
 /// shakenc
@@ -215,7 +215,7 @@ fn main() {
 
             loop {
                 if let Ok(()) = close_rx.try_recv() {
-                    eprintln!("aborted at byte {}", progress);
+                    eprintln!("aborted at byte {} ({})", progress, HumanBytes(progress));
                     break;
                 }
                 let read_len = input.read(&mut buf).unwrap();
@@ -246,7 +246,7 @@ fn main() {
 
             loop {
                 if let Ok(()) = close_rx.try_recv() {
-                    eprintln!("aborted at byte {}", progress);
+                    eprintln!("aborted at byte {} ({})", progress, HumanBytes(progress));
                     break;
                 }
                 if (len - progress) != 0 {
@@ -279,10 +279,10 @@ fn main() {
 
             'main: loop {
                 if let Ok(()) = close_rx.try_recv() {
-                    if count_err {
-                        eprintln!("aborted at byte {} with {} byte(s) error", progress, err);
+                    if count_err & (err != 0) {
+                        eprintln!("aborted at byte {} ({}) with {} byte(s) ({}) error", progress, HumanBytes(progress), err, HumanBytes(err));
                     } else {
-                        eprintln!("aborted at byte {}", progress);
+                        eprintln!("aborted at byte {} ({})", progress, HumanBytes(progress));
                     }
                     break;
                 }
@@ -294,13 +294,14 @@ fn main() {
                     // TODO: if err != 0 then not enumerate()? necessary?
                     for (pos, b) in buf.into_iter().enumerate() {
                         if *b != 0 {
+                            let actual_pos = progress + usize_u64(pos);
                             if count_err {
                                 if err == 0 {
-                                    eprintln!("error occurred at byte {}", progress + usize_u64(pos));
+                                    eprintln!("error occurred at byte {} ({})", actual_pos, HumanBytes(actual_pos));
                                 }
                                 err += 1;
                             } else {
-                                eprintln!("aborted by error occurred at byte {}", progress + usize_u64(pos));
+                                eprintln!("aborted by error occurred at byte {} ({})", actual_pos, HumanBytes(actual_pos));
                                 break 'main;
                             }
                         }
@@ -311,7 +312,7 @@ fn main() {
                     // must be EOF beacuse buf_len != 0
                     assert_eq!(progress, len);
                     if count_err {
-                        eprintln!("finished with {} byte(s) error", err);
+                        eprintln!("finished with {} byte(s) ({}) error", err, HumanBytes(err));
                     } else {
                         eprintln!("finished");
                     }
