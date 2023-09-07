@@ -162,7 +162,7 @@ impl KeyInput {
     fn process(self) -> Zeroizing<Vec<u8>> {
         #[inline]
         fn prompt_key(prompt: &str) -> Zeroizing<String> {
-            secprompt::prompt_password(prompt).unwrap()
+            secprompt::prompt_password(prompt).expect("fatal")
         }
 
         #[inline]
@@ -195,8 +195,8 @@ fn main() {
     let key = key.map(|key| key.into_bytes().into());
 
     let (close_tx, close_rx) = mpsc::sync_channel::<()>(0);
-    ctrlc::set_handler(move || close_tx.send(()).unwrap()).unwrap();
-    let progress_style = ProgressStyle::with_template(PROGRESS_TEMPLATE).unwrap();
+    ctrlc::set_handler(move || close_tx.send(()).expect("fatal")).expect("fatal");
+    let progress_style = ProgressStyle::with_template(PROGRESS_TEMPLATE).expect("fatal");
 
     let key = KeyInput::from_args(key, rand_key, hex_key).process();
     let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
@@ -206,9 +206,9 @@ fn main() {
     match sub {
         Commands::Crypt(Crypt { input, output, ih: ihash, oh: ohash }) => {
             let mut ctx = Context::init(&key, ihash, ohash);
-            let mut input = OpenOptions::new().read(true).open(input).unwrap();
-            let mut output = OpenOptions::new().create_new(true).write(true).open(output).unwrap();
-            let len = input.metadata().unwrap().len();
+            let mut input = OpenOptions::new().read(true).open(input).expect("failed to open input file");
+            let mut output = OpenOptions::new().create_new(true).write(true).open(output).expect("failed to open output file");
+            let len = input.metadata().expect("fatal").len();
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
             progress_bar.set_style(progress_style);
@@ -218,12 +218,12 @@ fn main() {
                     eprintln!("aborted at byte {} ({})", progress, HumanBytes(progress));
                     break;
                 }
-                let read_len = input.read(&mut buf).unwrap();
+                let read_len = input.read(&mut buf).unwrap( );
                 if read_len != 0 {
                     // buf == buf[..read_len] when buf_len == read_len
                     let buf = &mut buf[..read_len];
                     ctx.next(buf);
-                    output.write_all(buf).unwrap();
+                    output.write_all(buf).unwrap( );
                     progress += usize_u64(read_len);
                     progress_bar.inc(usize_u64(read_len));
                 } else {
@@ -238,7 +238,7 @@ fn main() {
 
         Commands::Rng(Rng { output, len }) => {
             let mut ctx = RAND_CUSTOM.create().chain_absorb(&key);
-            let mut output = output.map(|output| OpenOptions::new().create_new(true).write(true).open(output).unwrap());
+            let mut output = output.map(|output| OpenOptions::new().create_new(true).write(true).open(output).expect("failed to open output file"));
             let len = len * 1048576;
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
@@ -254,7 +254,7 @@ fn main() {
                     let buf = &mut buf[..write_len];
                     if let Some(output) = output.as_mut() {
                         ctx.squeeze(buf);
-                        output.write_all(buf).unwrap();
+                        output.write_all(buf).unwrap( );
                     } else {
                         ctx.squeeze_skip(write_len);
                     }
@@ -270,8 +270,8 @@ fn main() {
 
         Commands::Rnv(Rnv { input, count_err }) => {
             let mut ctx = RAND_CUSTOM.create().chain_absorb(&key);
-            let mut input = OpenOptions::new().read(true).open(input).unwrap();
-            let len = input.metadata().unwrap().len();
+            let mut input = OpenOptions::new().read(true).open(input).expect("failed to open input file");
+            let len = input.metadata().expect("fatal").len();
             let mut progress = 0;
             let mut err: u64 = 0;
             let progress_bar = ProgressBar::new(len);
@@ -286,7 +286,7 @@ fn main() {
                     }
                     break;
                 }
-                let read_len = input.read(&mut buf).unwrap();
+                let read_len = input.read(&mut buf).unwrap( );
                 if read_len != 0 {
                     // buf == buf[..read_len] when buf_len == read_len
                     let buf = &mut buf[..read_len];
