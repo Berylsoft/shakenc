@@ -71,7 +71,7 @@ use zeroize::Zeroizing;
 use indicatif::{ProgressBar, ProgressStyle, HumanBytes};
 
 #[derive(argh::FromArgs)]
-/// shakenc
+/// shakenc: cSHAKE256 encrypt & random generating
 struct Args {
     /// key (if not provided in arguments, you will need to enter them later)
     #[argh(option, short = 'k')]
@@ -214,16 +214,27 @@ fn main() {
             progress_bar.set_style(progress_style);
 
             loop {
+                macro_rules! ioop {
+                    ($op:expr, $f:expr) => {
+                        match $op {
+                            Ok(val) => val,
+                            Err(err) => {
+                                eprintln!("aborted at byte {} ({}) by {} file error {:?}", progress, HumanBytes(progress), $f, err);
+                                break;
+                            },
+                        }
+                    };
+                }
                 if let Ok(()) = close_rx.try_recv() {
                     eprintln!("aborted at byte {} ({})", progress, HumanBytes(progress));
                     break;
                 }
-                let read_len = input.read(&mut buf).unwrap( );
+                let read_len = ioop!(input.read(&mut buf), "input");
                 if read_len != 0 {
                     // buf == buf[..read_len] when buf_len == read_len
                     let buf = &mut buf[..read_len];
                     ctx.next(buf);
-                    output.write_all(buf).unwrap( );
+                    ioop!(output.write_all(buf), "output");
                     progress += usize_u64(read_len);
                     progress_bar.inc(usize_u64(read_len));
                 } else {
@@ -245,6 +256,17 @@ fn main() {
             progress_bar.set_style(progress_style);
 
             loop {
+                macro_rules! ioop {
+                    ($op:expr) => {
+                        match $op {
+                            Ok(val) => val,
+                            Err(err) => {
+                                eprintln!("aborted at byte {} ({}) by file error {:?}", progress, HumanBytes(progress), err);
+                                break;
+                            },
+                        }
+                    };
+                }
                 if let Ok(()) = close_rx.try_recv() {
                     eprintln!("aborted at byte {} ({})", progress, HumanBytes(progress));
                     break;
@@ -254,7 +276,7 @@ fn main() {
                     let buf = &mut buf[..write_len];
                     if let Some(output) = output.as_mut() {
                         ctx.squeeze(buf);
-                        output.write_all(buf).unwrap( );
+                        ioop!(output.write_all(buf));
                     } else {
                         ctx.squeeze_skip(write_len);
                     }
@@ -278,6 +300,21 @@ fn main() {
             progress_bar.set_style(progress_style);
 
             'main: loop {
+                macro_rules! ioop {
+                    ($op:expr) => {
+                        match $op {
+                            Ok(val) => val,
+                            Err(e) => {
+                                if count_err & (err != 0) {
+                                    eprintln!("aborted at byte {} ({}) by file error {:?} with {} byte(s) ({}) error", progress, HumanBytes(progress), e, err, HumanBytes(err));
+                                } else {
+                                    eprintln!("aborted at byte {} ({}) by file error {:?}", progress, HumanBytes(progress), e);
+                                }
+                                break;
+                            },
+                        }
+                    };
+                }
                 if let Ok(()) = close_rx.try_recv() {
                     if count_err & (err != 0) {
                         eprintln!("aborted at byte {} ({}) with {} byte(s) ({}) error", progress, HumanBytes(progress), err, HumanBytes(err));
@@ -286,7 +323,7 @@ fn main() {
                     }
                     break;
                 }
-                let read_len = input.read(&mut buf).unwrap( );
+                let read_len = ioop!(input.read(&mut buf));
                 if read_len != 0 {
                     // buf == buf[..read_len] when buf_len == read_len
                     let buf = &mut buf[..read_len];
@@ -311,7 +348,7 @@ fn main() {
                 } else {
                     // must be EOF beacuse buf_len != 0
                     assert_eq!(progress, len);
-                    if count_err {
+                    if count_err & (err != 0) {
                         eprintln!("finished with {} byte(s) ({}) error", err, HumanBytes(err));
                     } else {
                         eprintln!("finished");
