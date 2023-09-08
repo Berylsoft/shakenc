@@ -67,7 +67,7 @@ impl<const N: usize> std::fmt::Display for HashResult<N> {
     }
 }
 
-use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write}, path::PathBuf, sync::mpsc};
+use std::{num::NonZeroUsize, fs::OpenOptions, io::{Read, Write, self}, path::PathBuf, sync::mpsc};
 use zeroize::Zeroizing;
 use indicatif::{ProgressBar, ProgressStyle, HumanBytes};
 
@@ -163,7 +163,16 @@ impl KeyInput {
     fn process(self) -> Zeroizing<Vec<u8>> {
         #[inline]
         fn prompt_key(prompt: &str) -> Zeroizing<String> {
-            secprompt::prompt_password(prompt).expect("fatal")
+            match secprompt::prompt_password(prompt) {
+                Ok(val) => val,
+                Err(err) => {
+                    if err.kind() == io::ErrorKind::UnexpectedEof {
+                        std::process::exit(0);
+                    } else {
+                        panic!("fatal: {:?}", err)
+                    }
+                }
+            }
         }
 
         #[inline]
@@ -205,6 +214,11 @@ fn main() {
     let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
     // TODO: add mode-specific determination? (https://users.rust-lang.org/t/99470)
     let mut buf = vec![0u8; buf_len];
+
+    if let Ok(()) = close_rx.try_recv() {
+        eprintln!("aborted");
+        return;
+    }
 
     match sub {
         Commands::Crypt(Crypt { input, output, ih: ihash, oh: ohash }) => {
