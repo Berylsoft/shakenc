@@ -104,9 +104,9 @@ struct Crypt {
     /// input file path
     #[argh(option, short = 'i')]
     input: PathBuf,
-    /// output file path
+    /// output file path (none for verify by hash)
     #[argh(option, short = 'o')]
-    output: PathBuf,
+    output: Option<PathBuf>,
     /// hash input file
     #[argh(switch)]
     ih: bool,
@@ -207,7 +207,7 @@ fn main() {
         Commands::Crypt(Crypt { input, output, ih: ihash, oh: ohash }) => {
             let mut ctx = Context::init(&key, ihash, ohash);
             let mut input = OpenOptions::new().read(true).open(input).expect("failed to open input file");
-            let mut output = OpenOptions::new().create_new(true).write(true).open(output).expect("failed to open output file");
+            let mut output = output.map(|output| OpenOptions::new().create_new(true).write(true).open(output).expect("failed to open output file"));
             let len = input.metadata().expect("fatal").len();
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
@@ -234,7 +234,9 @@ fn main() {
                     // buf == buf[..read_len] when buf_len == read_len
                     let buf = &mut buf[..read_len];
                     ctx.next(buf);
-                    ioop!(output.write_all(buf), "output");
+                    if let Some(output) = output.as_mut() {
+                        ioop!(output.write_all(buf), "output");
+                    }
                     progress += usize_u64(read_len);
                     progress_bar.inc(usize_u64(read_len));
                 } else {
