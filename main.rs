@@ -199,6 +199,9 @@ impl KeyInput {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+cpufeatures::new!(armv8_sha3_intrinsics, "sha3");
+
 // TODO(upstream): template codegen & bar max width
 const PROGRESS_TEMPLATE: &str = "{bar:60} {percent}% {bytes}/{total_bytes} {elapsed_precise}/{duration_precise} {bytes_per_sec} ETA={eta}";
 
@@ -209,6 +212,11 @@ fn main() {
     let (close_tx, close_rx) = mpsc::sync_channel::<()>(0);
     ctrlc::set_handler(move || close_tx.send(()).expect("fatal")).expect("fatal");
     let progress_style = ProgressStyle::with_template(PROGRESS_TEMPLATE).expect("fatal");
+
+    #[cfg(target_arch = "aarch64")]
+    if armv8_sha3_intrinsics::get() {
+        eprintln!("ARMv8 SHA3 feature detected");
+    }
 
     let key = KeyInput::from_args(key, rand_key, hex_key).process();
     let buf_len = buf_len.map(NonZeroUsize::get).unwrap_or(16) * 1048576;
