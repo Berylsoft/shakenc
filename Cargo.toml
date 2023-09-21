@@ -11,7 +11,7 @@ name = "shakenc"
 path = "main.rs"
 
 [dependencies]
-cshake = { git = "https://github.com/Berylsoft/keccak-state", features = ["alloc"] }
+cshake = { git = "https://github.com/Berylsoft/keccak-state", features = ["alloc", "zeroize-on-drop"] }
 secprompt = { git = "https://github.com/Berylsoft/secprompt" }
 argh = "0.1"
 hex = "0.4"
