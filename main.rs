@@ -96,6 +96,7 @@ enum Commands {
     Crypt(Crypt),
     Rng(Rng),
     Rnv(Rnv),
+    Flip(Flip),
 }
 
 #[derive(argh::FromArgs)]
@@ -139,6 +140,11 @@ struct Rnv {
     #[argh(switch)]
     count_err: bool,
 }
+
+#[derive(argh::FromArgs)]
+#[argh(subcommand, name = "flip")]
+/// cSHAKE256 as a reproduceable random generator to flip a coin
+struct Flip {}
 
 enum KeyInput {
     ArgString(Zeroizing<Vec<u8>>),
@@ -381,6 +387,17 @@ fn main() {
                     eprintln_werr!("finished");
                     break;
                 }
+            }
+        },
+        Commands::Flip(Flip { }) => {
+            let mut ctx = RAND_CUSTOM.create().chain_absorb(&key);
+            let mut out = [0; 1];
+            ctx.squeeze(&mut out);
+            let [out] = out;
+            if out <= 127 {
+                println!("HEADS");
+            } else {
+                println!("TAILS");
             }
         },
     }
