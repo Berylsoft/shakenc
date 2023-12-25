@@ -102,6 +102,13 @@ enum Commands {
 #[derive(argh::FromArgs)]
 #[argh(subcommand, name = "crypt")]
 /// cSHAKE256 as a stream cipher for file encrypt/decrypt
+/// 
+/// IMPORTANT WARNING: One of the purposes of shakenc is to simply show how cryptography works, so it takes the key
+/// input directly as input to the cshake256 function. In other words, in the case of us using the cshake256 function
+/// as a cipher, the key does not go through a key derivation function (KDF) and is not salted with a non-fixed salt
+/// (I don't think a fixed cshake custom counts as a salt). For using rand-key option or other sources of random
+/// entropy as a key, this is generally fine. However, if the key input has a low entropy (e.g. a string), then the
+/// encryption can be broken by brute force, and is therefore not suitable for serious encryption situations.
 struct Crypt {
     /// input file path
     #[argh(option, short = 'i')]
