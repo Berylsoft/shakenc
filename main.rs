@@ -86,6 +86,9 @@ struct Args {
     /// buffer size (MiB, default 16MiB, will take this size of runtime memory)
     #[argh(option)]
     buf: Option<NonZeroUsize>,
+    /// allow overwrite existing files
+    #[argh(switch)]
+    overwrite: bool,
     #[argh(subcommand)]
     sub: Commands,
 }
@@ -219,7 +222,7 @@ cpufeatures::new!(armv8_sha3_intrinsics, "sha3");
 const PROGRESS_TEMPLATE: &str = "{bar:60} {percent}% {bytes}/{total_bytes} {elapsed_precise}/{duration_precise} {bytes_per_sec} ETA={eta}";
 
 fn main() {
-    let Args { key, rand_key, hex_key, buf: buf_len, sub } = argh::from_env();
+    let Args { key, rand_key, hex_key, buf: buf_len, overwrite, sub } = argh::from_env();
     let key = key.map(|key| key.into_bytes().into());
 
     let (close_tx, close_rx) = mpsc::sync_channel::<()>(0);
@@ -245,7 +248,7 @@ fn main() {
         Commands::Crypt(Crypt { input, output, ih: ihash, oh: ohash }) => {
             let mut ctx = Context::init(&key, ihash, ohash);
             let mut input = OpenOptions::new().read(true).open(input).expect("failed to open input file");
-            let mut output = output.map(|output| OpenOptions::new().create_new(true).write(true).open(output).expect("failed to open output file"));
+            let mut output = output.map(|output| OpenOptions::new().create_new(!overwrite).write(true).open(output).expect("failed to open output file"));
             let len = input.metadata().expect("fatal").len();
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
@@ -289,7 +292,7 @@ fn main() {
 
         Commands::Rng(Rng { output, len }) => {
             let mut ctx = RAND_CUSTOM.create().chain_absorb(&key);
-            let mut output = output.map(|output| OpenOptions::new().create_new(true).write(true).open(output).expect("failed to open output file"));
+            let mut output = output.map(|output| OpenOptions::new().create_new(!overwrite).write(true).open(output).expect("failed to open output file"));
             let len = len * 1048576;
             let mut progress = 0;
             let progress_bar = ProgressBar::new(len);
