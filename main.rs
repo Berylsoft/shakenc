@@ -1,3 +1,5 @@
+#![deny(unused_results)]
+
 #[inline]
 fn u64_usize(n: u64) -> usize {
     n.try_into().expect("FATAL: u64 length to usize error")
@@ -23,6 +25,18 @@ struct Context {
     ohash: Option<CShake<HASH_CUSTOM>>,
 }
 
+trait OptionExec<T> {
+    fn exec<F: FnOnce(&mut T)>(&mut self, f: F);
+}
+
+impl<T> OptionExec<T> for Option<T> {
+    fn exec<F: FnOnce(&mut T)>(&mut self, f: F) {
+        if let Some(x) = self {
+            f(x);
+        }
+    }
+}
+
 impl Context {
     fn init(key: &[u8], ihash: bool, ohash: bool) -> Self {
         Self {
@@ -33,15 +47,15 @@ impl Context {
     }
 
     fn next(&mut self, buf: &mut [u8]) {
-        self.ihash.as_mut().map(|ctx| ctx.absorb(buf));
+        self.ihash.exec(|ctx| ctx.absorb(buf));
         self.cipher.squeeze_xor(buf);
-        self.ohash.as_mut().map(|ctx| ctx.absorb(buf));
+        self.ohash.exec(|ctx| ctx.absorb(buf));
     }
 
     fn finish<const N: usize>(self) -> HashResult<N> {
         HashResult {
-            ihash: self.ihash.and_then(|mut ctx| Some(ctx.squeeze_to_array())),
-            ohash: self.ohash.and_then(|mut ctx| Some(ctx.squeeze_to_array())),
+            ihash: self.ihash.map(|mut ctx| ctx.squeeze_to_array()),
+            ohash: self.ohash.map(|mut ctx| ctx.squeeze_to_array()),
         }
     }
 }
@@ -375,7 +389,7 @@ fn main() {
                     let buf = &mut buf[..read_len];
                     ctx.squeeze_xor(buf);
                     // TODO: if err != 0 then not enumerate()? necessary?
-                    for (pos, b) in buf.into_iter().enumerate() {
+                    for (pos, b) in buf.iter_mut().enumerate() {
                         if *b != 0 {
                             let actual_pos = progress + usize_u64(pos);
                             if count_err {
